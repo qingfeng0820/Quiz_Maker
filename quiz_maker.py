@@ -1,6 +1,19 @@
+# -*- coding: UTF-8 -*-
+from __future__ import unicode_literals
+
+import sys
+
+from docx.enum.text import WD_BREAK_TYPE
+from docx.oxml import CT_Num, CT_Numbering
+from docx.parts.numbering import _NumberingDefinitions
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
 import csv
+from collections import OrderedDict
 
 from docx import Document
+from docx.opc.oxml import qn
 from docx.shared import Inches, Pt
 
 
@@ -94,22 +107,79 @@ def test(questions):
     print "Score: " + str(score) + "/" + str(len(questions))
 
 
-def paper(questions, paper_path="test.doc"):
+def paper(questions, sort=True, paper_path="quiz.doc"):
     document = Document()
+    for s in document.styles:
+        if hasattr(s, 'font'):
+            s.font.name = '宋体'
+        # s._element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
+    answer_path = "%s_answer.txt" % paper_path
+    i = 1
+    with open(answer_path, 'w') as f:
+        if sort:
+            sort_ret = _get_sorted_questions(questions)
+            for item in sort_ret.keys():
+                if len(sort_ret[item]) > 0:
+                    f.write("%s\n" % item)
+                    document.add_heading(item, 2)
+                    i = _print_questions(sort_ret[item], document, f, i, 2)
+                    f.write("\n")
+        else:
+            _print_questions(questions, document, f)
+    document.save(paper_path)
+
+
+def _get_sorted_questions(questions):
+    single_choices_questions = []
+    multiple_choices_questions = []
+    judge_questions = []
+    fill_questions = []
+    ret = OrderedDict()
+    ret['单选题'] = single_choices_questions
+    ret['多选题'] = multiple_choices_questions
+    ret['判断题'] = judge_questions
+    ret['填空题'] = fill_questions
     for q in questions:
-        question_p = document.add_paragraph(q.question, style='List Number')
+        if len(q.choices) > 1:
+            if len(q.answers) > 1:
+                multiple_choices_questions.append(q)
+            else:
+                single_choices_questions.append(q)
+        elif q.answers == "Y" or q.answers == "N":
+            judge_questions.append(q)
+        else:
+            fill_questions.append(q)
+    return ret
+
+
+def _print_questions(questions, document, f, start=1, level=1):
+    i = start
+    questions_style = "List Number"
+    num_id = None
+    if level > 1:
+        questions_style = "%s %d" % (questions_style, level)
+        # # Restart numbering of an ordered list
+        # next_num_id = document.part.numbering_part.numbering_definitions._numbering._next_numId
+        # num = CT_Num.new(1, str(level))
+        # num.add_lvlOverride(ilvl=0).add_startOverride(1)
+        # num_id = document.part.numbering_part.numbering_definitions._numbering._insert_num(num)
+    choices_style = "List %d" % (level + 1)
+    for q in questions:
+        question_p = document.add_paragraph(unicode(q.question, 'utf-8'), style=questions_style)
         if len(q.choices) > 1:
             choice = 65
             for c in q.choices:
-                p = document.add_paragraph(chr(choice) + ") " + c, style='List 2')
+                p = document.add_paragraph(chr(choice) + ") " + unicode(c, 'utf-8'), style=choices_style)
                 paragraph_format = p.paragraph_format
                 paragraph_format.line_spacing = Pt(20)
                 # paragraph_format.left_indent = Inches(0.3)
                 choice += 1
         else:
-            document.add_paragraph("", style='List 2')
-    document.save(paper_path)
-
+            document.add_paragraph(style=choices_style)
+        # question_p.paragraph_format.line_spacing = Pt(20)
+        f.write("%d. %s\n" % (i, q.answers))
+        i += 1
+    return i
 
 questions = load("q.csv")
 print "Questions loaded: " + str(len(questions))
